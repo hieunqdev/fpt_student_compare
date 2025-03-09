@@ -17,8 +17,8 @@ Dự án này giúp tự động kiểm tra và xác minh các quyết định l
 ## Các bước triển khai
 
 ### 1. Đọc dữ liệu từ Google Sheets hoặc Excel
-- **Google Sheets**: Sử dụng thư viện `gspread` để đọc dữ liệu.
-- **Excel**: Sử dụng thư viện `pandas` để xử lý file `.xlsx`.
+- **Google Sheets**: Sử dụng thư viện `gspread` để đọc dữ liệu. (1000 sv: 1s)
+- **Excel**: Sử dụng thư viện `pandas` để xử lý file `.xlsx`. (20000 sv: 2p lần đầu, 0s các lần sau)
 
 ### 2. Xử lý dữ liệu
 - Dùng **mã sinh viên** để tra cứu thông tin trong danh sách quyết định.

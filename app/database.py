@@ -1,7 +1,7 @@
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
+from sqlmodel import SQLModel, create_engine, Session
 
 # Load biến môi trường từ .env
 load_dotenv()
@@ -14,6 +14,14 @@ engine = create_engine(DATABASE_URL)
 
 # Tạo session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Hàm lấy session để sử dụng trong FastAPI
+def get_session():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Kiểm tra kết nối
 def test_connection():
