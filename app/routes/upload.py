@@ -1,11 +1,22 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
-from app.utils.google_sheets import lay_danh_sach_sinh_vien_tu_sheets
+# from app.utils.google_sheets import lay_danh_sach_sinh_vien_tu_sheets
 from app.utils.pdf_reader import lay_danh_sach_sinh_vien_tu_pdf
 from pydantic import BaseModel
 import time
 from app.database import SessionLocal
 from sqlmodel import Session
 from app.models.sinh_vien import SinhVien
+import requests
+from io import StringIO
+import pandas as pd
+import openpyxl
+from io import BytesIO
+import requests
+import openpyxl
+from io import BytesIO
+import time
+from fastapi.responses import StreamingResponse
+import re
 
 
 router = APIRouter()
@@ -24,67 +35,128 @@ def normalize_text(text):
     """Chuẩn hóa văn bản: loại bỏ khoảng trắng hai đầu, xuống dòng và viết thường"""
     return text.strip().replace("\n", " ").lower() if text else ""
 
+
 def compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf):
     """
-    Hàm so sánh danh sách sinh viên giữa Google Sheets và database (PDF).
-    Trả về danh sách sinh viên có thông tin khác nhau.
+    So sánh danh sách sinh viên từ Excel và từ database.
     """
-    ds_sinh_vien_pdf_dict = {sv.mssv: sv for sv in ds_sinh_vien_pdf}
     cap_nhat_ket_qua = []
+    try:
+        # Duyệt qua danh sách sinh viên từ Excel
+        for index, sv_sheets in ds_sinh_vien_sheets.iterrows():
+            mssv_excel = normalize_text(str(sv_sheets['MSSV']).strip())
 
-    for sv_sheets in ds_sinh_vien_sheets:
-        mssv = sv_sheets["mssv"]
-        sv_pdf = ds_sinh_vien_pdf_dict.get(mssv)
+            for sv in ds_sinh_vien_pdf:
+                if normalize_text(str(sv.mssv).strip()) == mssv_excel:
+                    sv_pdf = sv
+                    break
 
-        if sv_pdf:
+            # Nếu không tìm thấy sinh viên trong database, bỏ qua
+            if sv_pdf is None:
+                continue
+
             khac_biet = []
 
-            if normalize_text(sv_sheets["ho_va_ten"]) != normalize_text(sv_pdf.ho_va_ten):
-                khac_biet.append(f"Họ và tên: {normalize_text(sv_sheets['ho_va_ten'])} → {normalize_text(sv_pdf.ho_va_ten)}")
+            # So sánh từng thuộc tính của sinh viên
+            if normalize_text(sv_sheets['Họ và tên']) != normalize_text(sv_pdf.ho_va_ten):
+                khac_biet.append(f"({sv_sheets['Họ và tên']} != {sv_pdf.ho_va_ten})")
 
-            if normalize_text(sv_sheets["ngay_sinh"]) != normalize_text(sv_pdf.ngay_sinh):
-                khac_biet.append(f"Ngày sinh: {normalize_text(sv_sheets['ngay_sinh'])} → {normalize_text(sv_pdf.ngay_sinh)}")
+            # if normalize_text(sv_sheets['Ngày sinh']) != normalize_text(sv_pdf.ngay_sinh):
+            #     khac_biet.append(f"({sv_sheets['Ngày sinh']} != {sv_pdf.ngay_sinh})")
 
-            if normalize_text(sv_sheets["gioi_tinh"]) != normalize_text(sv_pdf.gioi_tinh):
-                khac_biet.append(f"Giới tính: {normalize_text(sv_sheets['gioi_tinh'])} → {normalize_text(sv_pdf.gioi_tinh)}")
+            # if normalize_text(sv_sheets['Giới\ntính']) != normalize_text(sv_pdf.gioi_tinh):
+            #     khac_biet.append(f"({sv_sheets['Giới\ntính']} != {sv_pdf.gioi_tinh})")
 
-            if normalize_text(sv_sheets["nganh"]) != normalize_text(sv_pdf.nganh):
-                khac_biet.append(f"Ngành: {normalize_text(sv_sheets['nganh'])} → {normalize_text(sv_pdf.nganh)}")
+            # if normalize_text(sv_sheets['Dân\ntộc']) != normalize_text(sv_pdf.dan_toc):
+            #     khac_biet.append(f"({sv_sheets['Dân\ntộc']} != {sv_pdf.dan_toc})")
+
+            if normalize_text(sv_sheets['Chuyên ngành']) != normalize_text(sv_pdf.chuyen_nganh):
+                khac_biet.append(f"({sv_sheets['Chuyên ngành']} != {sv_pdf.chuyen_nganh})")
+
+            if normalize_text(sv_sheets['Ngành']) != normalize_text(sv_pdf.nganh):
+                khac_biet.append(f"({sv_sheets['Ngành']} != {sv_pdf.nganh})")
 
             if khac_biet:
-                cap_nhat_ket_qua.append({"mssv": mssv, "ghi_chu": ", ".join(khac_biet)})
+                cap_nhat_ket_qua.append({
+                    "mssv": mssv_excel,
+                    "ghi_chu": "; ".join(khac_biet)
+                })
+        return cap_nhat_ket_qua
+    except Exception as e:
+        raise Exception(f"Lỗi khi so sánh sinh viên: {str(e)}")
 
-    return cap_nhat_ket_qua
+
+def cap_nhat_khac_biet_vao_excel(file_content: bytes, cap_nhat_ket_qua: list, cot_quyet_dinh: str, cot_ghi_chu: str, so_qd: str):
+    """
+    Cập nhật thông tin khác biệt vào file Excel.
+    """
+    try:
+        workbook = openpyxl.load_workbook(BytesIO(file_content))
+        sheet = workbook.active
+
+        # Tìm chỉ số cột từ ký tự cột (A -> 1, B -> 2, ...)
+        col_number = openpyxl.utils.column_index_from_string(cot_ghi_chu)
+        col_number_cot_quyet_dinh = openpyxl.utils.column_index_from_string(cot_quyet_dinh)
+
+        # Duyệt qua từng sinh viên và cập nhật khác biệt vào Excel
+        for cap_nhat in cap_nhat_ket_qua:
+            mssv = cap_nhat.get("mssv")
+            ghi_chu = cap_nhat.get("ghi_chu")
+
+            # Duyệt qua từng hàng để tìm MSSV
+            for row in range(2, sheet.max_row + 1):  # Bỏ qua hàng đầu tiên (tiêu đề)
+                if normalize_text(str(sheet.cell(row=row, column=2).value)) == str(mssv):
+                    sheet.cell(row=row, column=col_number_cot_quyet_dinh, value=str(so_qd))
+                    sheet.cell(row=row, column=col_number, value=ghi_chu)
+                    break
+
+        # Lưu file Excel sau khi cập nhật
+        excel_buffer = BytesIO()
+        workbook.save(excel_buffer)
+        excel_buffer.seek(0)
+        return excel_buffer.getvalue()
+
+    except Exception as e:
+        raise Exception(f"Lỗi khi cập nhật Excel: {str(e)}")
+
 
 @router.post("/upload/sheets")
-async def upload_google_sheets(request: GoogleSheetRequest, db: Session = Depends(get_db)):
+async def upload_excel_sheets(file: UploadFile, cot_quyet_dinh: str = "L", cot_ghi_chu: str = "M", db: Session = Depends(get_db)):
     """
-    API để nhập danh sách sinh viên từ Google Sheets, so sánh với danh sách từ PDF trong database.
+    API để nhập danh sách sinh viên từ Excel, so sánh với danh sách từ database,
+    và cập nhật thông tin khác biệt vào cột chỉ định trong Excel.
     """
     try:
         start_time = time.time()
 
-        # 1. Lấy danh sách sinh viên từ Google Sheets
-        ds_sinh_vien_sheets = lay_danh_sach_sinh_vien_tu_sheets(request.sheet_url)
+        # 1. Đọc danh sách sinh viên từ file Excel
+        content = await file.read()
+        ds_sinh_vien_sheets = pd.read_excel(BytesIO(content), dtype=str)
 
         # 2. Lấy danh sách sinh viên từ database (PDF đã upload trước đó)
-        ds_sinh_vien_pdf = db.query(SinhVien).all()
+        # ds_sinh_vien_pdf = db.query(SinhVien).all()
+        ds_sinh_vien_pdf = db.query(SinhVien).limit(100).all()
+        so_qd = ds_sinh_vien_pdf[0].so_qd
 
         # 3. So sánh danh sách sinh viên
         cap_nhat_ket_qua = compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf)
 
+        # 4. Cập nhật khác biệt vào file Excel đã tải về
+        updated_excel = cap_nhat_khac_biet_vao_excel(content, cap_nhat_ket_qua, cot_quyet_dinh, cot_ghi_chu, so_qd)
+
         end_time = time.time()
         print(f"Thời gian thực thi: {end_time - start_time:.4f} giây")
 
-        return {
-            "status": "success",
-            "message": "Nhập danh sách từ Google Sheets thành công!",
-            "so_luong_sinh_vien": len(ds_sinh_vien_sheets),
-            "khac_biet": cap_nhat_ket_qua
-        }
+        # Trả file Excel đã cập nhật về dưới dạng StreamingResponse
+        return StreamingResponse(
+            BytesIO(updated_excel),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=updated_sinh_vien.xlsx"}
+        )
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @router.post("/upload/pdf")
@@ -93,7 +165,6 @@ async def upload_pdf(files: list[UploadFile] = File(...), background_tasks: Back
     """
     API tải lên file PDF chứa danh sách sinh viên và lưu vào PostgreSQL.
     """
-    print("hello world")
     file_data_list = [(await file.read(), file.filename) for file in files]  # Đọc file ngay tại đây
 
     def process_and_save_pdfs():
