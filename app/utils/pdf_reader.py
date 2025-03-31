@@ -52,7 +52,6 @@ def lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, db):
     """
     Trích xuất danh sách sinh viên từ PDF từ bytes file.
     """
-    start_time = time.time()  # Lấy thời gian bắt đầu
     danh_sach_sinh_vien = []
 
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -93,7 +92,5 @@ def lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, db):
                                 db.add(db_sinh_vien)
 
         db.commit()  # Lưu vào database
-        end_time = time.time()  # Lấy thời gian kết thúc
-        print(f"Thời gian thực thi: {end_time - start_time:.4f} giây")
 
     return danh_sach_sinh_vien
