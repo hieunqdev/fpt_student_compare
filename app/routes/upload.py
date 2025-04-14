@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Form, BackgroundTasks
 from app.models.poly_cong_nhan_sinh_vien import PolyCongNhanSinhVien
 from app.models.poly_mien_giam_mon_hoc import PolyMienGiamMonHoc
 from app.utils.pdf_reader import poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf, poly_mien_giam_mon_hoc_lay_danh_sach_sinh_vien_tu_pdf
@@ -75,7 +75,7 @@ def poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf):
         raise Exception(f"Lỗi khi so sánh sinh viên: {str(e)}")
 
 def cap_nhat_khac_biet_vao_excel(file_content: bytes, cap_nhat_ket_qua: list, cot_quyet_dinh: str, cot_ghi_chu: str,
-                                 so_qd: str, ngay_sinh: str, gioi_tinh: str, dan_toc: str):
+                                 so_qd: str, ten_quyet_dinh: str, ngay_sinh: str, gioi_tinh: str, dan_toc: str):
     """
     Cập nhật thông tin khác biệt vào file Excel.
     """
@@ -101,7 +101,7 @@ def cap_nhat_khac_biet_vao_excel(file_content: bytes, cap_nhat_ket_qua: list, co
             # Duyệt qua từng hàng để tìm MSSV
             for row in range(2, sheet.max_row + 1):  # Bỏ qua hàng đầu tiên (tiêu đề)
                 if normalize_text(str(sheet.cell(row=row, column=2).value)) == str(mssv):
-                    sheet.cell(row=row, column=col_number_cot_quyet_dinh, value=str(so_qd))
+                    sheet.cell(row=row, column=col_number_cot_quyet_dinh, value=str(ten_quyet_dinh))
                     sheet.cell(row=row, column=col_ngay_sinh, value=str(ngay_sinh))
                     sheet.cell(row=row, column=col_gioi_tinh, value=str(gioi_tinh))
                     sheet.cell(row=row, column=col_dan_toc, value=str(dan_toc))
@@ -120,6 +120,7 @@ def cap_nhat_khac_biet_vao_excel(file_content: bytes, cap_nhat_ket_qua: list, co
 @router.post("/upload/poly-cong-nhan-sinh-vien")
 async def poly_cong_nhan_sinh_vien(file: UploadFile, cot_quyet_dinh: str = "R", cot_ghi_chu: str = "AB",
                                    ngay_sinh: str = "O", gioi_tinh: str = "P", dan_toc: str = "Q",
+                                   ten_quyet_dinh: str = Form(...),
                                    db: Session = Depends(get_db), files: list[UploadFile] = File(...)):
     record = db.query(PolyCongNhanSinhVien).filter(PolyCongNhanSinhVien.ten_file == files[0].filename).first()
     if not record:
@@ -127,7 +128,7 @@ async def poly_cong_nhan_sinh_vien(file: UploadFile, cot_quyet_dinh: str = "R", 
 
         danh_sach_tat_ca_sinh_vien = []
         for file_bytes, filename in file_data_list:
-            danh_sach_sinh_vien = poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, db)
+            danh_sach_sinh_vien = poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, ten_quyet_dinh, db)
             danh_sach_tat_ca_sinh_vien.extend(danh_sach_sinh_vien)
 
         db.bulk_save_objects(danh_sach_tat_ca_sinh_vien)
@@ -143,11 +144,12 @@ async def poly_cong_nhan_sinh_vien(file: UploadFile, cot_quyet_dinh: str = "R", 
                             .filter(PolyCongNhanSinhVien.ten_file == files[0].filename)
                             .all())
         so_qd = ds_sinh_vien_pdf[0].so_qd
+
         # 3. So sánh danh sách sinh viên
         cap_nhat_ket_qua = poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf)
 
         # 4. Cập nhật khác biệt vào file Excel đã tải về
-        updated_excel = cap_nhat_khac_biet_vao_excel(content, cap_nhat_ket_qua, cot_quyet_dinh, cot_ghi_chu, so_qd,
+        updated_excel = cap_nhat_khac_biet_vao_excel(content, cap_nhat_ket_qua, cot_quyet_dinh, cot_ghi_chu, so_qd, ten_quyet_dinh,
                                                      ngay_sinh, gioi_tinh, dan_toc)
 
         # Trả file Excel đã cập nhật về dưới dạng StreamingResponse

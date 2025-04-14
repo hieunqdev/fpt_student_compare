@@ -7,7 +7,7 @@ from app.models.poly_mien_giam_mon_hoc import PolyMienGiamMonHoc
 import numpy as np
 
 # Poly lấy danh sách Công nhận sinh viên
-def poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, db):
+def poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, ten_quyet_dinh, db):
     """
         Trích xuất danh sách sinh viên từ PDF Poly Công nhận sinh viên.
     """
@@ -32,7 +32,7 @@ def poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename
                             if ma_sinh_vien and ho_ten:
                                 sinh_vien = {
                                     "ten_file": ten_file,
-                                    "so_qd": so_qd,
+                                    "so_qd": ten_quyet_dinh,
                                     "mssv": ma_sinh_vien,
                                     "ho_va_ten": ho_ten,
                                     "ngay_sinh": ngay_sinh,
