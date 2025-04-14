@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
 from app.models.poly_cong_nhan_sinh_vien import PolyCongNhanSinhVien
-from app.utils.pdf_reader import poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf
+from app.models.poly_mien_giam_mon_hoc import PolyMienGiamMonHoc
+from app.utils.pdf_reader import poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf, poly_mien_giam_mon_hoc_lay_danh_sach_sinh_vien_tu_pdf
 from pydantic import BaseModel
 from app.database import SessionLocal
 from sqlmodel import Session
@@ -41,7 +42,6 @@ def poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf):
                 if normalize_text(str(sv.mssv).strip()) == mssv_excel:
                     sv_pdf = sv
                     break
-
             # Nếu không tìm thấy sinh viên trong database, bỏ qua
             if sv_pdf is None:
                 continue
@@ -64,9 +64,9 @@ def poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf):
             if khac_biet:
                 cap_nhat_ket_qua.append({
                     "mssv": mssv_excel,
-                    "ngay_sinh": sv_pdf.ngay_sinh,
-                    "gioi_tinh": sv_pdf.gioi_tinh,
-                    "dan_toc": sv_pdf.dan_toc,
+                    "ngay_sinh": sv_pdf.ngay_sinh if sv_pdf.ngay_sinh else "",
+                    "gioi_tinh": sv_pdf.gioi_tinh if sv_pdf.gioi_tinh else "",
+                    "dan_toc": sv_pdf.dan_toc if sv_pdf.dan_toc else "",
                     "ghi_chu": "; ".join(khac_biet)
                 })
 
@@ -117,63 +117,6 @@ def cap_nhat_khac_biet_vao_excel(file_content: bytes, cap_nhat_ket_qua: list, co
     except Exception as e:
         raise Exception(f"Lỗi khi cập nhật Excel: {str(e)}")
 
-############################################### Poly
-# Poly Quyết định Công nhận sinh viên
-# API Poly Công nhận sinh viên
-# @router.post("/upload/sheet-poly-cong-nhan-sinh-vien")
-# async def poly_cong_nhan_sinh_vien_compare(file: UploadFile, cot_quyet_dinh: str = "R", cot_ghi_chu: str = "AB",
-#                                            db: Session = Depends(get_db), files: list[UploadFile] = File(...),
-#                                            background_tasks: BackgroundTasks = BackgroundTasks()):
-#     """
-#         API
-#         Tải lên file PDF Quyết định công nhận sinh viên và lưu vào PostgreSQL.
-#
-#         Nhập danh sách sinh viên từ Excel, so sánh với danh sách từ database,
-#         và cập nhật thông tin khác biệt vào cột chỉ định trong Excel.
-#     """
-#     record = db.query(PolyCongNhanSinhVien).filter(PolyCongNhanSinhVien.ten_file == files[0].filename).first()
-#     if not record:
-#         file_data_list = [(await file.read(), file.filename) for file in files]  # Đọc file ngay tại đây
-#
-#         # def process_and_save_pdfs():
-#         danh_sach_tat_ca_sinh_vien = []
-#         for file_bytes, filename in file_data_list:
-#             danh_sach_sinh_vien = poly_cong_nhan_sinh_vien_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, db)
-#             danh_sach_tat_ca_sinh_vien.extend(danh_sach_sinh_vien)
-#
-#         db.bulk_save_objects(danh_sach_tat_ca_sinh_vien)
-#         db.commit()
-#
-#         # Chạy xử lý dữ liệu trong nền
-#         # background_tasks.add_task(process_and_save_pdfs)
-#     try:
-#         # 1. Đọc danh sách sinh viên từ file Excel
-#         content = await file.read()
-#         ds_sinh_vien_sheets = pd.read_excel(BytesIO(content), dtype=str)
-#
-#         # 2. Lấy danh sách sinh viên từ database (PDF đã upload trước đó)
-#         # ds_sinh_vien_pdf = db.query(SinhVien).all()
-#         ds_sinh_vien_pdf = (db.query(PolyCongNhanSinhVien)
-#                             .filter(PolyCongNhanSinhVien.ten_file == files[0].filename)
-#                             .all())
-#         so_qd = ds_sinh_vien_pdf[0].so_qd
-#         # 3. So sánh danh sách sinh viên
-#         cap_nhat_ket_qua = poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf)
-#
-#         # 4. Cập nhật khác biệt vào file Excel đã tải về
-#         updated_excel = cap_nhat_khac_biet_vao_excel(content, cap_nhat_ket_qua, cot_quyet_dinh, cot_ghi_chu, so_qd)
-#
-#         # Trả file Excel đã cập nhật về dưới dạng StreamingResponse
-#         return StreamingResponse(
-#             BytesIO(updated_excel),
-#             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#             headers={"Content-Disposition": f"attachment; filename=updated_sinh_vien.xlsx"}
-#         )
-#
-#     except Exception as e:
-#         raise HTTPException(status_code=400, detail=str(e))
-
-
 @router.post("/upload/poly-cong-nhan-sinh-vien")
 async def poly_cong_nhan_sinh_vien(file: UploadFile, cot_quyet_dinh: str = "R", cot_ghi_chu: str = "AB",
                                    ngay_sinh: str = "O", gioi_tinh: str = "P", dan_toc: str = "Q",
@@ -203,6 +146,49 @@ async def poly_cong_nhan_sinh_vien(file: UploadFile, cot_quyet_dinh: str = "R", 
         # 3. So sánh danh sách sinh viên
         cap_nhat_ket_qua = poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf)
 
+        # 4. Cập nhật khác biệt vào file Excel đã tải về
+        updated_excel = cap_nhat_khac_biet_vao_excel(content, cap_nhat_ket_qua, cot_quyet_dinh, cot_ghi_chu, so_qd,
+                                                     ngay_sinh, gioi_tinh, dan_toc)
+
+        # Trả file Excel đã cập nhật về dưới dạng StreamingResponse
+        return StreamingResponse(
+            BytesIO(updated_excel),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=updated_sinh_vien.xlsx"}
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/upload/poly-mien-giam-mon-hoc")
+async def poly_cong_nhan_sinh_vien(file: UploadFile, cot_quyet_dinh: str = "S", cot_ghi_chu: str = "AB",
+                                   ngay_sinh: str = "O", gioi_tinh: str = "P", dan_toc: str = "Q",
+                                   db: Session = Depends(get_db), files: list[UploadFile] = File(...)):
+    record = db.query(PolyMienGiamMonHoc).filter(PolyMienGiamMonHoc.ten_file == files[0].filename).first()
+    if not record:
+        file_data_list = [(await file.read(), file.filename) for file in files]
+
+        danh_sach_tat_ca_sinh_vien = []
+        for file_bytes, filename in file_data_list:
+            danh_sach_sinh_vien = poly_mien_giam_mon_hoc_lay_danh_sach_sinh_vien_tu_pdf(file_bytes, filename, db)
+            danh_sach_tat_ca_sinh_vien.extend(danh_sach_sinh_vien)
+        db.bulk_save_objects(danh_sach_tat_ca_sinh_vien)
+        db.commit()
+
+    try:
+        # 1. Đọc danh sách sinh viên từ file Excel
+        content = await file.read()
+        ds_sinh_vien_sheets = pd.read_excel(BytesIO(content), dtype=str)
+
+        # 2. Lấy danh sách sinh viên từ database (PDF đã upload trước đó)
+        ds_sinh_vien_pdf = (db.query(PolyMienGiamMonHoc)
+                            .filter(PolyMienGiamMonHoc.ten_file == files[0].filename)
+                            .all())
+        so_qd = ds_sinh_vien_pdf[0].so_qd
+
+        # 3. So sánh danh sách sinh viên
+        cap_nhat_ket_qua = poly_compare_students(ds_sinh_vien_sheets, ds_sinh_vien_pdf)
+        print("cap_nhat_ket_qua:")
         # 4. Cập nhật khác biệt vào file Excel đã tải về
         updated_excel = cap_nhat_khac_biet_vao_excel(content, cap_nhat_ket_qua, cot_quyet_dinh, cot_ghi_chu, so_qd,
                                                      ngay_sinh, gioi_tinh, dan_toc)
